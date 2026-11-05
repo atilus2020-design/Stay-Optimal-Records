@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Stay Optimal Records — AI Music Studio</title>
+  <meta name="description" content="Generate original music with AI. Describe a vibe or write your own lyrics and get studio-ready tracks in minutes." />
+  <meta name="theme-color" content="#0b0b10" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎛️</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true">◉</span>
+      <div>
+        <strong>Stay Optimal Records</strong>
+        <small>AI Music Studio</small>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <span id="credits" class="pill" title="Remaining SunoAPI credits">Credits: —</span>
+      <button id="lockBtn" class="ghost small" type="button" hidden>🔒 Passcode</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel create">
+      <div class="tabs" role="tablist">
+        <button class="tab active" data-mode="simple" role="tab" aria-selected="true">✨ Simple</button>
+        <button class="tab" data-mode="custom" role="tab" aria-selected="false">🎚️ Custom</button>
+      </div>
+
+      <form id="genForm" autocomplete="off">
+        <!-- SIMPLE MODE -->
+        <div class="mode mode-simple">
+          <label for="prompt">Describe your song</label>
+          <textarea id="prompt" maxlength="3000" rows="5" placeholder="A late-night R&B slow jam about city lights and second chances, smooth female vocals, warm Rhodes keys"></textarea>
+          <div class="chips" id="ideaChips"></div>
+        </div>
+
+        <!-- CUSTOM MODE -->
+        <div class="mode mode-custom" hidden>
+          <div class="row">
+            <div class="field grow">
+              <label for="title">Title</label>
+              <input id="title" maxlength="80" placeholder="Midnight Drive" />
+            </div>
+          </div>
+          <label for="style">Style / genre</label>
+          <input id="style" maxlength="1000" placeholder="trap soul, 808s, atmospheric pads, 140 bpm" />
+          <div class="chips" id="styleChips"></div>
+
+          <div class="lyrics-head">
+            <label for="lyrics">Lyrics</label>
+            <button type="button" id="writeLyricsBtn" class="ghost small">✍️ Write lyrics with AI</button>
+          </div>
+          <textarea id="lyrics" maxlength="5000" rows="9" placeholder="[Verse]&#10;Streetlights hum a low refrain...&#10;&#10;[Chorus]&#10;..."></textarea>
+
+          <details class="advanced">
+            <summary>Advanced controls</summary>
+            <label for="negativeTags">Avoid these styles</label>
+            <input id="negativeTags" maxlength="1000" placeholder="heavy metal, screaming" />
+            <div class="row">
+              <div class="field">
+                <label for="vocalGender">Vocals</label>
+                <select id="vocalGender">
+                  <option value="">Any</option>
+                  <option value="f">Female</option>
+                  <option value="m">Male</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="duration">Length (sec)</label>
+                <input id="duration" type="number" min="10" max="360" step="1" placeholder="auto" />
+              </div>
+            </div>
+            <div class="slider">
+              <label for="styleWeight">Style adherence <output data-for="styleWeight">—</output></label>
+              <input id="styleWeight" type="range" min="0" max="1" step="0.01" value="0.65" data-touched="0" />
+            </div>
+            <div class="slider">
+              <label for="weirdnessConstraint">Weirdness <output data-for="weirdnessConstraint">—</output></label>
+              <input id="weirdnessConstraint" type="range" min="0" max="1" step="0.01" value="0.5" data-touched="0" />
+            </div>
+            <div class="slider">
+              <label for="variety">Variety <output data-for="variety">—</output></label>
+              <input id="variety" type="range" min="0" max="4" step="1" value="1" data-touched="0" />
+            </div>
+            <p class="hint">Sliders are only sent if you move them.</p>
+          </details>
+        </div>
+
+        <div class="row options">
+          <label class="toggle">
+            <input type="checkbox" id="instrumental" />
+            <span class="track"><span class="thumb"></span></span>
+            Instrumental
+          </label>
+          <div class="field">
+            <label for="model" class="sr-only">Model</label>
+            <select id="model">
+              <option value="V6">V6 · Best quality</option>
+              <option value="V6_WILD">V6 Wild · Bold &amp; creative</option>
+              <option value="V6_MINI">V6 Mini · Fastest</option>
+            </select>
+          </div>
+        </div>
+
+        <button id="genBtn" class="primary" type="submit">
+          <span class="btn-label">Generate track</span>
+        </button>
+        <p id="formMsg" class="msg" role="status" aria-live="polite"></p>
+      </form>
+    </section>
+
+    <section class="panel library">
+      <div class="library-head">
+        <h2>Your tracks</h2>
+        <button id="clearBtn" class="ghost small" type="button">Clear</button>
+      </div>
+      <p class="hint">Each generation makes two takes. Audio files are hosted for 14 days — download the ones you love.</p>
+      <div id="jobs"></div>
+      <div id="empty" class="empty">
+        <div class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+        <p>No tracks yet. Describe a vibe and hit <b>Generate</b>.</p>
+      </div>
+    </section>
+  </main>
+
+  <div id="player" class="player" hidden>
+    <img id="pCover" alt="" />
+    <div class="p-meta">
+      <strong id="pTitle"></strong>
+      <small id="pTags"></small>
+    </div>
+    <audio id="audio" controls preload="none"></audio>
+  </div>
+
+  <dialog id="passDialog">
+    <form method="dialog" class="dialog-body">
+      <h3>Enter studio passcode</h3>
+      <p class="hint">This studio is private. Ask the owner for the passcode.</p>
+      <input id="passInput" type="password" autocomplete="current-password" />
+      <menu>
+        <button value="cancel" class="ghost">Cancel</button>
+        <button value="ok" class="primary small">Unlock</button>
+      </menu>
+    </form>
+  </dialog>
+
+  <template id="jobTpl">
+    <article class="job">
+      <header>
+        <div>
+          <strong class="job-title"></strong>
+          <small class="job-sub"></small>
+        </div>
+        <span class="badge"></span>
+      </header>
+      <div class="progress"><span></span></div>
+      <div class="tracks"></div>
+      <p class="job-err"></p>
+    </article>
+  </template>
+
+  <template id="trackTpl">
+    <div class="track-card">
+      <button class="cover" type="button" aria-label="Play">
+        <img alt="" loading="lazy" />
+        <span class="play-ico">▶</span>
+      </button>
+      <div class="t-meta">
+        <strong class="t-title"></strong>
+        <small class="t-tags"></small>
+        <small class="t-dur"></small>
+      </div>
+      <div class="t-actions">
+        <a class="ghost small dl" download target="_blank" rel="noopener">⬇ MP3</a>
+        <button class="ghost small lyr" type="button">Lyrics</button>
+      </div>
+      <pre class="t-lyrics" hidden></pre>
+    </div>
+  </template>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>

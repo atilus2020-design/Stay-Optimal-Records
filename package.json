@@ -1,0 +1,12 @@
+{
+  "name": "stay-optimal-records",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI music generation studio powered by SunoAPI.org, deployed on Netlify.",
+  "scripts": {
+    "dev": "netlify dev"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
