@@ -2,6 +2,8 @@
 // The API key lives ONLY in the server environment (SUNO_API_KEY) and is never sent to the browser.
 
 export const SUNO_BASE = process.env.SUNO_API_BASE || "https://api.sunoapi.org";
+// File Upload API lives on a separate host (files are kept for 3 days).
+export const UPLOAD_BASE = process.env.SUNO_UPLOAD_BASE || "https://sunoapiorg.redpandaai.co";
 
 export function json(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -26,8 +28,8 @@ export function getKey() {
   return key;
 }
 
-export async function suno(path, { method = "GET", body, query } = {}) {
-  const url = new URL(path, SUNO_BASE);
+export async function suno(path, { method = "GET", body, query, base = SUNO_BASE } = {}) {
+  const url = new URL(path, base);
   if (query) for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v);
   const res = await fetch(url, {
     method,

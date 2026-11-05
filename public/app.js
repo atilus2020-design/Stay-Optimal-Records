@@ -1,6 +1,10 @@
 // Stay Optimal Records — AI Music Studio (frontend)
 // Talks only to our own Netlify Functions under /api/*; the SunoAPI key never reaches the browser.
 
+import {
+  canRecord, startRecording, createTranscriber, encodeMp3, MIN_SECONDS, MAX_RECORD_SECONDS,
+} from "./recorder.js";
+
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 
@@ -45,6 +49,12 @@ const IDEAS = [
   "High-energy EDM festival drop with euphoric build",
 ];
 const STYLES = ["trap", "R&B", "lo-fi", "drill", "afrobeats", "pop", "house", "neo-soul", "rock", "cinematic", "jazz", "reggaeton"];
+
+const USE_LABEL = {
+  cover: "Remix of my voice",
+  "add-instrumental": "My vocals + beat",
+  reference: "Inspired by my recording",
+};
 
 let jobs = load();
 const timers = new Map();
@@ -137,6 +147,9 @@ function setMode(m) {
   });
   $(".mode-simple").hidden = m !== "simple";
   $(".mode-custom").hidden = m !== "custom";
+  $(".mode-record").hidden = m !== "record";
+  $("#instrumentalWrap").hidden = m === "record";
+  $("#genBtn .btn-label").textContent = genLabel();
   syncInstrumental();
 }
 
@@ -146,6 +159,9 @@ function syncInstrumental() {
   $("#writeLyricsBtn").disabled = inst;
   $("#lyrics").placeholder = inst ? "Instrumental — no lyrics needed." : "[Verse]\nStreetlights hum a low refrain...\n\n[Chorus]\n...";
 }
+
+const genLabel = () => (mode === "record" ? "Turn it into a song" : "Generate track");
+const recUse = () => $('input[name="recUse"]:checked').value;
 
 function collectForm() {
   const v = (id) => $("#" + id).value.trim();
@@ -175,6 +191,7 @@ function setMsg(text, isError = false) {
 
 async function onGenerate(e) {
   e.preventDefault();
+  if (mode === "record") return onGenerateFromRecording();
   const body = collectForm();
   if (mode === "simple" && !body.prompt) return setMsg("Describe the song you want first.", true);
   if (mode === "custom" && !body.style && !body.lyrics && !body.negativeTags)
@@ -186,27 +203,173 @@ async function onGenerate(e) {
   setMsg("");
   try {
     const data = await api("/api/generate", { method: "POST", body });
-    const job = {
+    addJob({
       taskId: data.taskId,
-      createdAt: Date.now(),
       title: body.title || (body.prompt ? body.prompt.slice(0, 60) : body.style.slice(0, 60)) || "Untitled",
       sub: [body.model, body.instrumental ? "Instrumental" : null, body.customMode ? body.style : body.prompt]
         .filter(Boolean)
         .join(" · "),
-      status: "PENDING",
-      tracks: [],
-      error: "",
-    };
-    jobs.unshift(job);
-    save();
-    render();
-    poll(job.taskId);
+    });
     setMsg("Generating — first take usually streams in under a minute.");
   } catch (err) {
     setMsg(err.message, true);
   } finally {
     btn.disabled = false;
-    btn.querySelector(".btn-label").textContent = "Generate track";
+    btn.querySelector(".btn-label").textContent = genLabel();
+  }
+}
+
+function addJob(job) {
+  jobs.unshift({ createdAt: Date.now(), status: "PENDING", tracks: [], error: "", ...job });
+  save();
+  render();
+  poll(job.taskId);
+}
+
+// ---------- recording ----------
+let take = null; // { blob, seconds, uploadedUrl, name }
+let session = null;
+let transcriber = null;
+let autoStop = 0;
+
+const fmtClock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+const REC_HINT = "Tap to record. Sing, hum, rap or just speak your idea (6 sec – 3 min).";
+
+function setTake(t) {
+  take = t;
+  const audio = $("#takeAudio");
+  if (audio.dataset.url) URL.revokeObjectURL(audio.dataset.url);
+  audio.dataset.url = "";
+  if (!t) {
+    $("#takeBox").hidden = true;
+    audio.removeAttribute("src");
+    return;
+  }
+  const url = URL.createObjectURL(t.blob);
+  audio.dataset.url = url;
+  audio.src = url;
+  $("#takeBox").hidden = false;
+}
+
+function appendLyricLine(text) {
+  const el = $("#recLyrics");
+  const line = text.charAt(0).toUpperCase() + text.slice(1);
+  el.value = el.value.trim() ? `${el.value.trimEnd()}\n${line}` : line;
+  el.scrollTop = el.scrollHeight;
+}
+
+async function toggleRecording() {
+  if (session) return stopRecording();
+  if (!canRecord()) return setMsg("Recording isn't supported in this browser. Upload an audio file instead.", true);
+  const btn = $("#recBtn");
+  btn.disabled = true;
+  try {
+    session = await startRecording({
+      canvas: $("#recWave"),
+      onTick: (sec) => ($("#recTime").textContent = fmtClock(sec)),
+    });
+  } catch (err) {
+    session = null;
+    btn.disabled = false;
+    const denied = err && (err.name === "NotAllowedError" || err.name === "SecurityError");
+    return setMsg(
+      denied
+        ? "Microphone access was blocked. Allow it from your browser's address bar and try again."
+        : "Couldn't start the microphone.",
+      true
+    );
+  }
+  btn.disabled = false;
+  setTake(null);
+  setMsg("");
+  $("#recorder").classList.add("live");
+  btn.setAttribute("aria-label", "Stop recording");
+  $("#recHint").textContent = "Recording… tap again to stop.";
+  if ($("#transcribe").checked) {
+    transcriber = createTranscriber({
+      onFinal: appendLyricLine,
+      onInterim: (t) => ($("#recHint").textContent = t ? `“${t}”` : "Recording… tap again to stop."),
+    });
+    if (transcriber) transcriber.start();
+  }
+  autoStop = setTimeout(stopRecording, MAX_RECORD_SECONDS * 1000);
+}
+
+async function stopRecording() {
+  if (!session) return;
+  clearTimeout(autoStop);
+  if (transcriber) transcriber.stop();
+  transcriber = null;
+  const s = session;
+  session = null;
+  const { blob, seconds } = await s.stop();
+  $("#recorder").classList.remove("live");
+  $("#recBtn").setAttribute("aria-label", "Start recording");
+  if (seconds < MIN_SECONDS) {
+    $("#recHint").textContent = `Too short — record at least ${MIN_SECONDS} seconds.`;
+    return;
+  }
+  $("#recHint").textContent = `Got it — ${fmtClock(seconds)} recorded. Play it back, redo, or turn it into a song.`;
+  setTake({ blob, seconds, name: "recording" });
+}
+
+function onFilePicked(e) {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = "";
+  if (!file) return;
+  if (file.size > 60 * 1024 * 1024) return setMsg("That file is too big (60 MB max).", true);
+  const base = file.name.replace(/\.[^.]+$/, "");
+  setTake({ blob: file, seconds: 0, name: base });
+  $("#recTime").textContent = "File";
+  $("#recHint").textContent = `Using “${file.name}”.`;
+  if (!$("#recTitle").value.trim()) $("#recTitle").value = base.slice(0, 80);
+}
+
+async function onGenerateFromRecording() {
+  if (session) await stopRecording();
+  if (!take) return setMsg("Record yourself (or upload a file) first.", true);
+  const action = recUse();
+  const btn = $("#genBtn");
+  const label = btn.querySelector(".btn-label");
+  btn.disabled = true;
+  setMsg("");
+  try {
+    if (!take.uploadedUrl) {
+      label.textContent = "Preparing your recording…";
+      const { dataUrl } = await encodeMp3(take.blob, (p) => {
+        label.textContent = `Preparing your recording… ${Math.round(p * 100)}%`;
+      });
+      label.textContent = "Uploading…";
+      const up = await api("/api/upload", {
+        method: "POST",
+        body: { base64Data: dataUrl, fileName: `take-${Date.now()}.mp3` },
+      });
+      take.uploadedUrl = up.url; // reuse if they try another style with the same take
+    }
+    label.textContent = "Sending to the studio…";
+    const v = (id) => $("#" + id).value.trim();
+    const body = {
+      action,
+      model: v("model"),
+      uploadUrl: take.uploadedUrl,
+      title: v("recTitle"),
+      style: v("recStyle"),
+      lyrics: v("recLyrics"),
+      prompt: action === "reference" ? v("recPrompt") : "",
+      audioWeight: action === "reference" ? undefined : Number($("#recAudioWeight").value),
+    };
+    const data = await api("/api/generate", { method: "POST", body });
+    addJob({
+      taskId: data.taskId,
+      title: body.title || "My recording",
+      sub: [body.model, USE_LABEL[action], body.style].filter(Boolean).join(" · "),
+    });
+    setMsg("Your recording is in the studio — the first take usually lands in a minute or two.");
+  } catch (err) {
+    setMsg(err.message, true);
+  } finally {
+    btn.disabled = false;
+    label.textContent = genLabel();
   }
 }
 
@@ -390,18 +553,41 @@ function init() {
     b.addEventListener("click", () => ($("#prompt").value = idea));
     ideaWrap.append(b);
   }
-  const styleWrap = $("#styleChips");
-  for (const s of STYLES) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "chip";
-    b.textContent = "+ " + s;
-    b.addEventListener("click", () => {
-      const cur = $("#style").value.trim();
-      $("#style").value = cur ? `${cur}, ${s}` : s;
-    });
-    styleWrap.append(b);
+  for (const wrap of $$("[data-style-target]")) {
+    const input = $("#" + wrap.dataset.styleTarget);
+    for (const s of STYLES) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip";
+      b.textContent = "+ " + s;
+      b.addEventListener("click", () => {
+        const cur = input.value.trim();
+        input.value = cur ? `${cur}, ${s}` : s;
+      });
+      wrap.append(b);
+    }
   }
+
+  // record mode
+  $("#recBtn").addEventListener("click", toggleRecording);
+  $("#redoBtn").addEventListener("click", () => {
+    setTake(null);
+    $("#recTime").textContent = "0:00";
+    $("#recHint").textContent = REC_HINT;
+  });
+  $("#fileInput").addEventListener("change", onFilePicked);
+  if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) $("#transcribeWrap").hidden = true;
+  if (!canRecord()) $("#recHint").textContent = "Recording isn't supported in this browser — upload an audio file instead.";
+  $$('input[name="recUse"]').forEach((r) =>
+    r.addEventListener("change", () => {
+      const a = recUse();
+      $(".ref-only").hidden = a !== "reference";
+      $("#recAudioWeight").closest(".slider").hidden = a === "reference";
+    })
+  );
+  $("#recAudioWeight").addEventListener("input", (e) => {
+    $('output[data-for="recAudioWeight"]').textContent = Number(e.target.value).toFixed(2);
+  });
 
   render();
   for (const j of jobs) if (!isTerminal(j.status) && j.status !== "TIMEOUT") poll(j.taskId);

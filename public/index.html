@@ -32,6 +32,7 @@
       <div class="tabs" role="tablist">
         <button class="tab active" data-mode="simple" role="tab" aria-selected="true">✨ Simple</button>
         <button class="tab" data-mode="custom" role="tab" aria-selected="false">🎚️ Custom</button>
+        <button class="tab" data-mode="record" role="tab" aria-selected="false">🎙️ Record</button>
       </div>
 
       <form id="genForm" autocomplete="off">
@@ -52,7 +53,7 @@
           </div>
           <label for="style">Style / genre</label>
           <input id="style" maxlength="1000" placeholder="trap soul, 808s, atmospheric pads, 140 bpm" />
-          <div class="chips" id="styleChips"></div>
+          <div class="chips" data-style-target="style"></div>
 
           <div class="lyrics-head">
             <label for="lyrics">Lyrics</label>
@@ -94,8 +95,66 @@
           </details>
         </div>
 
+
+        <!-- RECORD MODE -->
+        <div class="mode mode-record" hidden>
+          <div class="recorder" id="recorder">
+            <button type="button" id="recBtn" class="rec-btn" aria-label="Start recording"><span></span></button>
+            <div class="rec-info">
+              <strong id="recTime">0:00</strong>
+              <small id="recHint">Tap to record. Sing, hum, rap or just speak your idea (6 sec – 3 min).</small>
+            </div>
+            <canvas id="recWave" width="600" height="80" aria-hidden="true"></canvas>
+          </div>
+
+          <div id="takeBox" class="take" hidden>
+            <audio id="takeAudio" controls preload="metadata"></audio>
+            <button type="button" id="redoBtn" class="ghost small">↺ Redo</button>
+          </div>
+
+          <div class="rec-extras">
+            <label class="file-btn ghost small">⬆ Upload audio file<input type="file" id="fileInput" accept="audio/*" hidden /></label>
+            <label class="check" id="transcribeWrap">
+              <input type="checkbox" id="transcribe" checked />
+              Turn my words into lyrics while I record
+            </label>
+          </div>
+
+          <label>What should we do with your recording?</label>
+          <div class="choices" role="radiogroup">
+            <label class="choice">
+              <input type="radio" name="recUse" value="cover" checked />
+              <span><b>🎤 Remix my voice</b><small>Keeps your melody &amp; flow, then re-sings and produces it in a new style.</small></span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="recUse" value="add-instrumental" />
+              <span><b>🥁 Keep my vocals, add the beat</b><small>Your actual voice stays — we build the full backing track around it.</small></span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="recUse" value="reference" />
+              <span><b>💡 Use it as inspiration</b><small>Guides the vibe and flow of a brand-new song written from your idea.</small></span>
+            </label>
+          </div>
+
+          <label for="recTitle">Title</label>
+          <input id="recTitle" maxlength="80" placeholder="My Song" />
+          <label for="recStyle">Style / genre</label>
+          <input id="recStyle" maxlength="1000" placeholder="soulful R&amp;B, live drums, warm bass" />
+          <div class="chips" data-style-target="recStyle"></div>
+          <div class="ref-only" hidden>
+            <label for="recPrompt">Describe the idea</label>
+            <textarea id="recPrompt" maxlength="2000" rows="2" placeholder="A hopeful anthem about chasing dreams after a long night"></textarea>
+          </div>
+          <label for="recLyrics">Lyrics <small class="muted">(optional — filled from what you say)</small></label>
+          <textarea id="recLyrics" maxlength="5000" rows="6" placeholder="Your words will appear here as you sing or speak…"></textarea>
+          <div class="slider">
+            <label for="recAudioWeight">Stick to my recording <output data-for="recAudioWeight">0.70</output></label>
+            <input id="recAudioWeight" type="range" min="0" max="1" step="0.01" value="0.7" />
+          </div>
+        </div>
+
         <div class="row options">
-          <label class="toggle">
+          <label class="toggle" id="instrumentalWrap">
             <input type="checkbox" id="instrumental" />
             <span class="track"><span class="thumb"></span></span>
             Instrumental
@@ -186,6 +245,7 @@
     </div>
   </template>
 
+  <script src="/vendor/lame.min.js" defer></script>
   <script src="/app.js" type="module"></script>
 </body>
 </html>
