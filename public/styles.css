@@ -206,9 +206,6 @@ dialog::backdrop { background: rgba(0,0,0,.6); }
 .rec-info strong { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
 .rec-info small { color: var(--muted); font-size: 12px; }
 #recWave { grid-column: 1 / -1; width: 100%; height: 56px; }
-.take { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
-.take audio { flex: 1; min-width: 0; height: 40px; }
-.rec-extras { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; margin-top: 10px; }
 .file-btn { margin: 0; color: var(--text); font-weight: 500; }
 .check { display: inline-flex; gap: 8px; align-items: center; margin: 0; color: var(--text); font-weight: 500; cursor: pointer; }
 .check input { width: auto; accent-color: var(--accent-2); }
@@ -221,3 +218,50 @@ dialog::backdrop { background: rgba(0,0,0,.6); }
 .choice b { display: block; font-size: 14px; }
 .choice small { display: block; color: var(--muted); font-size: 12px; line-height: 1.4; }
 .choice:has(input:checked) { border-color: var(--accent); background: rgba(182, 255, 59, .06); }
+
+/* ---------- Mixer ---------- */
+.mixer { margin-top: 12px; border: 1px solid var(--line); border-radius: 14px; padding: 12px; background: rgba(0,0,0,.18); }
+.mixer-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.mixer-head strong { font-size: 14px; }
+.mixer-head small { margin-left: 6px; font-size: 12px; }
+.transport { display: flex; gap: 6px; }
+.file-btn.disabled { opacity: .45; pointer-events: none; }
+.mix-empty { color: var(--muted); font-size: 13px; text-align: center; padding: 14px 0 4px; margin: 0; }
+.track-list { display: grid; gap: 8px; margin-top: 10px; }
+.track-list:empty { margin-top: 0; }
+.layer { border: 1px solid var(--line); border-radius: 12px; padding: 8px 10px; background: var(--panel); }
+.layer.is-recording { border-color: var(--danger); }
+.layer.is-muted { opacity: .55; }
+.layer-top { display: flex; align-items: center; gap: 8px; }
+.layer-rec {
+  flex: none; width: 28px; height: 28px; border-radius: 50%; border: 2px solid var(--text);
+  background: transparent; display: grid; place-items: center; padding: 0; cursor: pointer;
+}
+.layer-rec span { width: 16px; height: 16px; border-radius: 50%; background: var(--danger); transition: all .15s; }
+.layer-rec.live span { width: 10px; height: 10px; border-radius: 2px; }
+.layer-rec.live { animation: pulse 1.4s ease-in-out infinite; }
+.layer-rec:disabled { opacity: .35; cursor: not-allowed; }
+.layer-name { flex: 1; min-width: 0; padding: 5px 8px; font-size: 13px; font-weight: 600; }
+.layer-dur { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; flex: none; }
+.layer-btns { display: flex; gap: 4px; flex: none; }
+.mini {
+  width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--line); background: var(--bg);
+  color: var(--muted); font-size: 12px; font-weight: 700; cursor: pointer; padding: 0;
+}
+.mini:hover { color: var(--text); border-color: var(--accent-2); }
+.mini.mute.on { background: #ffb020; color: #111; border-color: #ffb020; }
+.mini.solo.on { background: var(--accent); color: #111; border-color: var(--accent); }
+.mini.words { filter: grayscale(1); opacity: .5; }
+.mini.words.on { filter: none; opacity: 1; border-color: var(--accent-2); }
+.mini.del:hover { color: var(--danger); border-color: var(--danger); }
+.mini:disabled { opacity: .3; cursor: not-allowed; }
+.layer-wave { position: relative; margin: 6px 0 2px; background: var(--bg); border-radius: 6px; overflow: hidden; }
+.layer-wave canvas { display: block; width: 100%; height: 44px; }
+.layer-wave.pending { background: repeating-linear-gradient(90deg, rgba(255,92,122,.18) 0 8px, transparent 8px 16px); animation: slidebg 1s linear infinite; }
+@keyframes slidebg { to { background-position: 16px 0; } }
+.playhead { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--text); left: 0; pointer-events: none; }
+.layer-ctrls { display: flex; gap: 14px; flex-wrap: wrap; }
+.layer-ctrls label { display: flex; align-items: center; gap: 6px; margin: 4px 0 0; font-size: 11px; font-weight: 600; flex: 1; min-width: 140px; }
+.layer-ctrls input[type="range"] { flex: 1; min-width: 60px; }
+.nudge-out { color: var(--text); font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; font-size: 11px; }
+@media (max-width: 420px) { .layer-dur { display: none; } }

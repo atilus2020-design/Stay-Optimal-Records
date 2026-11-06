@@ -1,9 +1,8 @@
 // Stay Optimal Records — AI Music Studio (frontend)
 // Talks only to our own Netlify Functions under /api/*; the SunoAPI key never reaches the browser.
 
-import {
-  canRecord, startRecording, createTranscriber, encodeMp3, MIN_SECONDS, MAX_RECORD_SECONDS,
-} from "./recorder.js";
+import { canRecord, encodePcmMp3 } from "./recorder.js";
+import { Mixer, MAX_TRACKS } from "./mixer.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -226,30 +225,12 @@ function addJob(job) {
   poll(job.taskId);
 }
 
-// ---------- recording ----------
-let take = null; // { blob, seconds, uploadedUrl, name }
-let session = null;
-let transcriber = null;
-let autoStop = 0;
+// ---------- recording / mixer ----------
+let mixer = null;
+let uploadCache = { sig: "", url: "" }; // reuse the uploaded mix if nothing changed
 
 const fmtClock = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
-const REC_HINT = "Tap to record. Sing, hum, rap or just speak your idea (6 sec – 3 min).";
-
-function setTake(t) {
-  take = t;
-  const audio = $("#takeAudio");
-  if (audio.dataset.url) URL.revokeObjectURL(audio.dataset.url);
-  audio.dataset.url = "";
-  if (!t) {
-    $("#takeBox").hidden = true;
-    audio.removeAttribute("src");
-    return;
-  }
-  const url = URL.createObjectURL(t.blob);
-  audio.dataset.url = url;
-  audio.src = url;
-  $("#takeBox").hidden = false;
-}
+const REC_HINT = "Tap to record a layer. Stack up to 5: lead, harmonies, ad-libs, hums, spoken ideas.";
 
 function appendLyricLine(text) {
   const el = $("#recLyrics");
@@ -258,100 +239,102 @@ function appendLyricLine(text) {
   el.scrollTop = el.scrollHeight;
 }
 
-async function toggleRecording() {
-  if (session) return stopRecording();
-  if (!canRecord()) return setMsg("Recording isn't supported in this browser. Upload an audio file instead.", true);
-  const btn = $("#recBtn");
-  btn.disabled = true;
-  try {
-    session = await startRecording({
-      canvas: $("#recWave"),
-      onTick: (sec) => ($("#recTime").textContent = fmtClock(sec)),
-    });
-  } catch (err) {
-    session = null;
-    btn.disabled = false;
-    const denied = err && (err.name === "NotAllowedError" || err.name === "SecurityError");
-    return setMsg(
-      denied
-        ? "Microphone access was blocked. Allow it from your browser's address bar and try again."
-        : "Couldn't start the microphone.",
-      true
-    );
+function syncMixerUi() {
+  const n = mixer.tracks.length;
+  const recording = mixer.isRecording;
+  $("#trackCount").textContent = `${n} / ${MAX_TRACKS} layers`;
+  $("#mixEmpty").hidden = n > 0;
+  $("#recorder").classList.toggle("live", recording);
+  const big = $("#recBtn");
+  big.disabled = !recording && mixer.full;
+  big.setAttribute("aria-label", recording ? "Stop recording" : "Record a new layer");
+  const play = $("#mixPlay");
+  play.disabled = recording || !mixer.tracks.some((t) => t.buffer);
+  play.textContent = mixer.isPlaying && !recording ? "■ Stop" : "▶ Play mix";
+  $("#addFileBtn").classList.toggle("disabled", mixer.full || recording);
+  if (recording) {
+    const others = mixer.tracks.filter((t) => t.buffer && !t.recording && mixer.audible(t)).length;
+    if (!$("#recHint").textContent.startsWith("“"))
+      $("#recHint").textContent = others
+        ? `Recording “${mixer.rec.track.name}” over ${others} layer${others > 1 ? "s" : ""}… tap the red button to stop.`
+        : `Recording “${mixer.rec.track.name}”… tap the red button to stop.`;
+  } else {
+    $("#recHint").textContent = mixer.full
+      ? "Mixer is full (5 layers). Re-record or delete a layer to change it."
+      : n
+      ? `Layer ${n} saved. Tap the red button to stack another — the mix plays back while you record.`
+      : REC_HINT;
   }
-  btn.disabled = false;
-  setTake(null);
+}
+
+async function onBigRecord() {
   setMsg("");
-  $("#recorder").classList.add("live");
-  btn.setAttribute("aria-label", "Stop recording");
-  $("#recHint").textContent = "Recording… tap again to stop.";
-  if ($("#transcribe").checked) {
-    transcriber = createTranscriber({
-      onFinal: appendLyricLine,
-      onInterim: (t) => ($("#recHint").textContent = t ? `“${t}”` : "Recording… tap again to stop."),
-    });
-    if (transcriber) transcriber.start();
+  if (mixer.isRecording) return void (await mixer.stopRecording());
+  if (!canRecord()) return setMsg("Recording isn't supported in this browser. Add an audio file instead.", true);
+  try {
+    await mixer.record();
+  } catch (err) {
+    onRecordError(err);
   }
-  autoStop = setTimeout(stopRecording, MAX_RECORD_SECONDS * 1000);
 }
 
-async function stopRecording() {
-  if (!session) return;
-  clearTimeout(autoStop);
-  if (transcriber) transcriber.stop();
-  transcriber = null;
-  const s = session;
-  session = null;
-  const { blob, seconds } = await s.stop();
-  $("#recorder").classList.remove("live");
-  $("#recBtn").setAttribute("aria-label", "Start recording");
-  if (seconds < MIN_SECONDS) {
-    $("#recHint").textContent = `Too short — record at least ${MIN_SECONDS} seconds.`;
-    return;
-  }
-  $("#recHint").textContent = `Got it — ${fmtClock(seconds)} recorded. Play it back, redo, or turn it into a song.`;
-  setTake({ blob, seconds, name: "recording" });
+function onRecordError(err) {
+  const denied = err && (err.name === "NotAllowedError" || err.name === "SecurityError");
+  setMsg(
+    denied
+      ? "Microphone access was blocked. Allow it from your browser's address bar and try again."
+      : err.message || "Couldn't start the microphone.",
+    true
+  );
 }
 
-function onFilePicked(e) {
+async function onFilePicked(e) {
   const file = e.target.files && e.target.files[0];
   e.target.value = "";
   if (!file) return;
   if (file.size > 60 * 1024 * 1024) return setMsg("That file is too big (60 MB max).", true);
-  const base = file.name.replace(/\.[^.]+$/, "");
-  setTake({ blob: file, seconds: 0, name: base });
-  $("#recTime").textContent = "File";
-  $("#recHint").textContent = `Using “${file.name}”.`;
-  if (!$("#recTitle").value.trim()) $("#recTitle").value = base.slice(0, 80);
+  setMsg("Loading file…");
+  try {
+    await mixer.addFile(file);
+    setMsg("");
+    if (!$("#recTitle").value.trim()) $("#recTitle").value = file.name.replace(/\.[^.]+$/, "").slice(0, 80);
+  } catch (err) {
+    setMsg(err.message, true);
+  }
 }
 
 async function onGenerateFromRecording() {
-  if (session) await stopRecording();
-  if (!take) return setMsg("Record yourself (or upload a file) first.", true);
+  if (mixer.isRecording) await mixer.stopRecording();
+  mixer.stop();
+  if (!mixer.tracks.some((t) => t.buffer)) return setMsg("Record at least one layer (or add a file) first.", true);
   const action = recUse();
   const btn = $("#genBtn");
   const label = btn.querySelector(".btn-label");
   btn.disabled = true;
   setMsg("");
   try {
-    if (!take.uploadedUrl) {
-      label.textContent = "Preparing your recording…";
-      const { dataUrl } = await encodeMp3(take.blob, (p) => {
-        label.textContent = `Preparing your recording… ${Math.round(p * 100)}%`;
+    const sig = mixer.signature();
+    let layers = mixer.tracks.filter((t) => mixer.audible(t)).length;
+    if (uploadCache.sig !== sig) {
+      label.textContent = "Mixing your layers…";
+      const mix = await mixer.mixdown();
+      layers = mix.layers;
+      const { dataUrl } = await encodePcmMp3(mix.pcm, mix.rate, (p) => {
+        label.textContent = `Preparing your mix… ${Math.round(p * 100)}%`;
       });
       label.textContent = "Uploading…";
       const up = await api("/api/upload", {
         method: "POST",
-        body: { base64Data: dataUrl, fileName: `take-${Date.now()}.mp3` },
+        body: { base64Data: dataUrl, fileName: `mix-${Date.now()}.mp3` },
       });
-      take.uploadedUrl = up.url; // reuse if they try another style with the same take
+      uploadCache = { sig, url: up.url };
     }
     label.textContent = "Sending to the studio…";
     const v = (id) => $("#" + id).value.trim();
     const body = {
       action,
       model: v("model"),
-      uploadUrl: take.uploadedUrl,
+      uploadUrl: uploadCache.url,
       title: v("recTitle"),
       style: v("recStyle"),
       lyrics: v("recLyrics"),
@@ -362,9 +345,9 @@ async function onGenerateFromRecording() {
     addJob({
       taskId: data.taskId,
       title: body.title || "My recording",
-      sub: [body.model, USE_LABEL[action], body.style].filter(Boolean).join(" · "),
+      sub: [body.model, USE_LABEL[action], `${layers} layer${layers > 1 ? "s" : ""}`, body.style].filter(Boolean).join(" · "),
     });
-    setMsg("Your recording is in the studio — the first take usually lands in a minute or two.");
+    setMsg("Your mix is in the studio — the first take usually lands in a minute or two.");
   } catch (err) {
     setMsg(err.message, true);
   } finally {
@@ -568,16 +551,33 @@ function init() {
     }
   }
 
-  // record mode
-  $("#recBtn").addEventListener("click", toggleRecording);
-  $("#redoBtn").addEventListener("click", () => {
-    setTake(null);
-    $("#recTime").textContent = "0:00";
-    $("#recHint").textContent = REC_HINT;
+  // record mode: multitrack mixer
+  mixer = new Mixer({
+    list: $("#trackList"),
+    tpl: $("#layerTpl"),
+    meterCanvas: $("#recWave"),
+    onChange: syncMixerUi,
+    onTime: (sec) => ($("#recTime").textContent = fmtClock(sec)),
+    onLyric: appendLyricLine,
+    onInterim: (t) => {
+      if (t) $("#recHint").textContent = `“${t}”`;
+    },
+    onError: (m) => setMsg(m, true),
   });
+  $("#recBtn").addEventListener("click", onBigRecord);
+  $("#mixPlay").addEventListener("click", () => (mixer.isPlaying ? mixer.stop() : mixer.start()));
   $("#fileInput").addEventListener("change", onFilePicked);
-  if (!(window.SpeechRecognition || window.webkitSpeechRecognition)) $("#transcribeWrap").hidden = true;
-  if (!canRecord()) $("#recHint").textContent = "Recording isn't supported in this browser — upload an audio file instead.";
+  $("#trackList").addEventListener("click", (e) => {
+    if (e.target.closest(".layer-rec")) setMsg("");
+  });
+  if (!canRecord()) $("#recHint").textContent = "Recording isn't supported in this browser — add audio files instead.";
+  window.addEventListener("beforeunload", (e) => {
+    if (mixer.tracks.length) {
+      e.preventDefault();
+      e.returnValue = "";
+    }
+  });
+  syncMixerUi();
   $$('input[name="recUse"]').forEach((r) =>
     r.addEventListener("change", () => {
       const a = recUse();

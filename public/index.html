@@ -99,40 +99,40 @@
         <!-- RECORD MODE -->
         <div class="mode mode-record" hidden>
           <div class="recorder" id="recorder">
-            <button type="button" id="recBtn" class="rec-btn" aria-label="Start recording"><span></span></button>
+            <button type="button" id="recBtn" class="rec-btn" aria-label="Record a new layer"><span></span></button>
             <div class="rec-info">
               <strong id="recTime">0:00</strong>
-              <small id="recHint">Tap to record. Sing, hum, rap or just speak your idea (6 sec – 3 min).</small>
+              <small id="recHint">Tap to record a layer. Stack up to 5: lead, harmonies, ad-libs, hums, spoken ideas.</small>
             </div>
             <canvas id="recWave" width="600" height="80" aria-hidden="true"></canvas>
           </div>
 
-          <div id="takeBox" class="take" hidden>
-            <audio id="takeAudio" controls preload="metadata"></audio>
-            <button type="button" id="redoBtn" class="ghost small">↺ Redo</button>
+          <div class="mixer">
+            <div class="mixer-head">
+              <strong>🎚️ Mixer <small id="trackCount" class="muted">0 / 5 layers</small></strong>
+              <div class="transport">
+                <button type="button" id="mixPlay" class="ghost small" disabled>▶ Play mix</button>
+                <label class="file-btn ghost small" id="addFileBtn">⬆ Add file<input type="file" id="fileInput" accept="audio/*" hidden /></label>
+              </div>
+            </div>
+            <div id="trackList" class="track-list"></div>
+            <p id="mixEmpty" class="mix-empty">No layers yet. Hit the red button and lay down your first idea.</p>
+            <p class="hint">🎧 Wear headphones when stacking layers. The other layers play while you record, so you can sing along without them bleeding into the mic. Use <b>Nudge</b> if a layer sounds early or late, and 📝 to turn a layer's words into lyrics.</p>
           </div>
 
-          <div class="rec-extras">
-            <label class="file-btn ghost small">⬆ Upload audio file<input type="file" id="fileInput" accept="audio/*" hidden /></label>
-            <label class="check" id="transcribeWrap">
-              <input type="checkbox" id="transcribe" checked />
-              Turn my words into lyrics while I record
-            </label>
-          </div>
-
-          <label>What should we do with your recording?</label>
+          <label>What should we do with your mix?</label>
           <div class="choices" role="radiogroup">
             <label class="choice">
               <input type="radio" name="recUse" value="cover" checked />
-              <span><b>🎤 Remix my voice</b><small>Keeps your melody &amp; flow, then re-sings and produces it in a new style.</small></span>
+              <span><b>🎤 Remix my voice</b><small>Keeps your melody &amp; flow, then re-sings and produces the mix in a new style.</small></span>
             </label>
             <label class="choice">
               <input type="radio" name="recUse" value="add-instrumental" />
-              <span><b>🥁 Keep my vocals, add the beat</b><small>Your actual voice stays — we build the full backing track around it.</small></span>
+              <span><b>🥁 Keep my vocals, add the beat</b><small>Your actual voices (every layer) stay — we build the full backing track around them.</small></span>
             </label>
             <label class="choice">
               <input type="radio" name="recUse" value="reference" />
-              <span><b>💡 Use it as inspiration</b><small>Guides the vibe and flow of a brand-new song written from your idea.</small></span>
+              <span><b>💡 Use it as inspiration</b><small>Your layers guide the vibe and flow of a brand-new song written from your idea.</small></span>
             </label>
           </div>
 
@@ -148,7 +148,7 @@
           <label for="recLyrics">Lyrics <small class="muted">(optional — filled from what you say)</small></label>
           <textarea id="recLyrics" maxlength="5000" rows="6" placeholder="Your words will appear here as you sing or speak…"></textarea>
           <div class="slider">
-            <label for="recAudioWeight">Stick to my recording <output data-for="recAudioWeight">0.70</output></label>
+            <label for="recAudioWeight">Stick to my mix <output data-for="recAudioWeight">0.70</output></label>
             <input id="recAudioWeight" type="range" min="0" max="1" step="0.01" value="0.7" />
           </div>
         </div>
@@ -210,6 +210,37 @@
       </menu>
     </form>
   </dialog>
+
+  <template id="layerTpl">
+    <div class="layer">
+      <div class="layer-top">
+        <button type="button" class="layer-rec" aria-label="Record this layer"><span></span></button>
+        <input class="layer-name" maxlength="30" list="layerNames" aria-label="Layer name" />
+        <small class="layer-dur"></small>
+        <div class="layer-btns">
+          <button type="button" class="mini mute" title="Mute">M</button>
+          <button type="button" class="mini solo" title="Solo">S</button>
+          <button type="button" class="mini words" title="Turn this layer's words into lyrics while recording">📝</button>
+          <button type="button" class="mini del" title="Delete layer" aria-label="Delete layer">✕</button>
+        </div>
+      </div>
+      <div class="layer-wave"><canvas width="600" height="44"></canvas><i class="playhead" hidden></i></div>
+      <div class="layer-ctrls">
+        <label>Vol <input type="range" class="vol" min="0" max="1.5" step="0.01" /></label>
+        <label>Nudge <input type="range" class="nudge" min="-500" max="500" step="10" /> <output class="nudge-out"></output></label>
+      </div>
+    </div>
+  </template>
+  <datalist id="layerNames">
+    <option value="Lead vocal"></option>
+    <option value="Harmony"></option>
+    <option value="Ad-libs"></option>
+    <option value="Backing vocals"></option>
+    <option value="Hook"></option>
+    <option value="Beatbox"></option>
+    <option value="Hummed melody"></option>
+    <option value="Spoken idea"></option>
+  </datalist>
 
   <template id="jobTpl">
     <article class="job">

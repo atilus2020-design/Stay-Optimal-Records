@@ -111,35 +111,27 @@ export function createTranscriber({ onFinal, onInterim }) {
   };
 }
 
-// Decode any browser-playable audio, downmix to mono 44.1 kHz, encode to MP3.
-export async function encodeMp3(blob, onProgress) {
-  if (!window.lamejs) throw new Error("Audio encoder failed to load. Refresh the page and try again.");
-  const AC = window.AudioContext || window.webkitAudioContext;
-  const ctx = new AC();
-  let decoded;
+// Decode any browser-playable audio (a recording or an uploaded file) into an AudioBuffer.
+export async function decodeBlob(ctx, blob) {
   try {
-    decoded = await ctx.decodeAudioData(await blob.arrayBuffer());
+    return await ctx.decodeAudioData(await blob.arrayBuffer());
   } catch {
     throw new Error("Couldn't read that audio. Try another recording or file format.");
-  } finally {
-    ctx.close().catch(() => {});
   }
-  const duration = decoded.duration;
-  if (duration < MIN_SECONDS) throw new Error(`Recording is too short — at least ${MIN_SECONDS} seconds please.`);
-  if (duration > MAX_FILE_SECONDS) throw new Error("Recording is longer than 8 minutes. Trim it and try again.");
+}
 
-  const rate = 44100;
-  const off = new OfflineAudioContext(1, Math.ceil(duration * rate), rate);
-  const src = off.createBufferSource();
-  src.buffer = decoded;
-  src.connect(off.destination);
-  src.start();
-  const pcm = (await off.startRendering()).getChannelData(0);
+// Encode mono PCM (44.1 kHz Float32Array) to an MP3 data URL, normalising level and
+// picking a bitrate that keeps the upload under Netlify's request limit.
+export async function encodePcmMp3(pcm, rate, onProgress) {
+  if (!window.lamejs) throw new Error("Audio encoder failed to load. Refresh the page and try again.");
+  const duration = pcm.length / rate;
+  if (duration < MIN_SECONDS) throw new Error(`Your mix is too short — at least ${MIN_SECONDS} seconds please.`);
+  if (duration > MAX_FILE_SECONDS) throw new Error("Your mix is longer than 8 minutes. Trim a layer and try again.");
 
-  // Gentle normalisation so quiet phone mics still give the model a strong signal.
+  // Boost quiet takes, and pull stacked layers back so they don't clip.
   let peak = 0;
   for (let i = 0; i < pcm.length; i++) peak = Math.max(peak, Math.abs(pcm[i]));
-  const gain = peak > 0 && peak < 0.8 ? Math.min(4, 0.9 / peak) : 1;
+  const gain = peak === 0 ? 1 : peak > 0.95 ? 0.95 / peak : peak < 0.8 ? Math.min(4, 0.9 / peak) : 1;
 
   const maxKbps = (TARGET_BYTES * 8) / 1000 / duration;
   const kbps = BITRATES.find((b) => b <= maxKbps) || 32;

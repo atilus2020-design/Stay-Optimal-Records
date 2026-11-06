@@ -4,10 +4,14 @@ A web app that lets users generate original songs with AI, powered by [SunoAPI.o
 
 - **Simple mode**: describe a vibe ("late-night R&B about city lights…"), and lyrics are written for you.
 - **Custom mode**: set the title, style, and your own lyrics, plus advanced controls (styles to avoid, vocal gender, length, style adherence, weirdness, variety).
-- **Record mode**: sing, hum, rap or speak an idea into the mic (or upload an audio file), with a live level meter and playback. What you say can be transcribed straight into the lyrics box (Chrome, Edge, Safari). Then choose one:
-  - **Remix my voice**: keeps your melody and flow, then re-sings and produces it in a new style (`upload-cover`).
-  - **Keep my vocals, add the beat**: your real voice stays and a full backing track is built around it (`add-instrumental`).
-  - **Use it as inspiration**: your recording guides the vibe and flow of a brand-new song (`generate` with `audioUrls`).
+- **Record mode with a 5-layer mixer**: stack up to 5 recordings (lead vocal, harmonies, ad-libs, hums, spoken ideas) or uploaded audio files.
+  - Recording a new layer plays the existing layers back so you can sing along (wear headphones). Recording latency is compensated automatically, and each layer has a **Nudge** slider (±500 ms) to fix timing by hand.
+  - Each layer has a name, volume, **M**ute, **S**olo, re-record, delete, and a 📝 toggle that transcribes that layer's words into the lyrics box (Chrome, Edge, Safari). It's on by default only for the first layer, so ad-libs don't clutter the lyrics.
+  - **Play mix** previews all audible layers with a playhead. When you generate, the layers are mixed down in the browser into one MP3 and uploaded. If the mix hasn't changed, the earlier upload is reused.
+  - Then choose one:
+    - **Remix my voice**: keeps your melody and flow, then re-sings and produces it in a new style (`upload-cover`).
+    - **Keep my vocals, add the beat**: your real voice stays and a full backing track is built around it (`add-instrumental`).
+    - **Use it as inspiration**: your mix guides the vibe and flow of a brand-new song (`generate` with `audioUrls`).
 - **Write lyrics with AI**: generates lyrics from a short topic.
 - Models: V6 (default), V6 Wild, V6 Mini.
 - Each generation produces 2 takes. The first one can be streamed before the final MP3 is ready.
