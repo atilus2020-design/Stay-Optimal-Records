@@ -12,6 +12,10 @@ A web app that lets users generate original songs with AI, powered by [SunoAPI.o
     - **Remix my voice**: keeps your melody and flow, then re-sings and produces it in a new style (`upload-cover`).
     - **Keep my vocals, add the beat**: your real voice stays and a full backing track is built around it (`add-instrumental`).
     - **Use it as inspiration**: your mix guides the vibe and flow of a brand-new song (`generate` with `audioUrls`).
+- **Producer notes** (all modes): a box for telling the AI what to keep in mind, e.g. "make it 3 minutes, big 808 drop at 0:45, guitar solo around 2:00, fade out at the end."
+  - **Target length** (m:ss, with quick 1:00–4:00 buttons) is filled in automatically from phrases like "extend it into 3 mins". In Custom mode and Record → Remix it's sent as SunoAPI's exact `duration` (max 6:00). In the other modes it's sent as a written request.
+  - Timestamps in the notes are shown as cue chips (e.g. `0:45 big 808 drop`, `2:30–2:50 just drums`) so you can check what the AI will be told. The notes go to the AI as direction alongside the style. It follows them closely, but not to the exact second.
+- **⏩ Extend** on any finished track: pick a start time (type it, press "Use player time" after pausing the player at the right moment, or press "From the end"). Then describe what should happen from there and optionally add lyrics for the new part. Everything before that point stays, which makes it the precise way to lengthen a song or change what happens at a specific moment (`/api/v1/generate/extend`, using the same model as the original).
 - **Write lyrics with AI**: generates lyrics from a short topic.
 - Models: V6 (default), V6 Wild, V6 Mini.
 - Each generation produces 2 takes. The first one can be streamed before the final MP3 is ready.
@@ -27,7 +31,7 @@ A web app that lets users generate original songs with AI, powered by [SunoAPI.o
   - `POST /api/lyrics`, `GET /api/lyrics?taskId=` → `/api/v1/lyrics`, `/api/v1/lyrics/record-info`
   - `GET  /api/credits` → `GET /api/v1/generate/credit`
   - `POST /api/upload` → File Upload API `POST /api/file-base64-upload` (recordings are compressed to MP3 in the browser with the vendored `public/vendor/lame.min.js`, LGPL, to stay under Netlify's ~6 MB request limit; uploads are kept for 3 days)
-  - `POST /api/generate` with `action: "cover" | "add-instrumental" | "reference"` handles the three recording modes
+  - `POST /api/generate` with `action: "cover" | "add-instrumental" | "reference"` handles the three recording modes, and `action: "extend"` continues a finished track from a timestamp (`/api/v1/generate/extend`). Every action accepts `notes` and `targetSeconds`.
   - `POST /api/callback`: no-op receiver for SunoAPI's required `callBackUrl` (the app polls instead)
 
 ## Deploy on Netlify

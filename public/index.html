@@ -74,10 +74,6 @@
                   <option value="m">Male</option>
                 </select>
               </div>
-              <div class="field">
-                <label for="duration">Length (sec)</label>
-                <input id="duration" type="number" min="10" max="360" step="1" placeholder="auto" />
-              </div>
             </div>
             <div class="slider">
               <label for="styleWeight">Style adherence <output data-for="styleWeight">—</output></label>
@@ -151,6 +147,29 @@
             <label for="recAudioWeight">Stick to my mix <output data-for="recAudioWeight">0.70</output></label>
             <input id="recAudioWeight" type="range" min="0" max="1" step="0.01" value="0.7" />
           </div>
+        </div>
+
+        <!-- PRODUCER NOTES (all modes) -->
+        <div class="notes">
+          <div class="notes-head">
+            <label for="notes">📝 Producer notes <small class="muted">— what should the AI keep in mind?</small></label>
+            <small class="muted"><span id="notesCount">0</span>/800</small>
+          </div>
+          <textarea id="notes" maxlength="800" rows="3" placeholder="e.g. Make it 3 minutes long. Soft piano intro, big 808 drop at 0:45, guitar solo around 2:00, fade out at the end."></textarea>
+          <div class="notes-len">
+            <label for="targetLen">Target length</label>
+            <input id="targetLen" placeholder="auto" inputmode="numeric" maxlength="5" aria-describedby="lenHelp" />
+            <div class="len-chips">
+              <button type="button" class="chip" data-len="">Auto</button>
+              <button type="button" class="chip" data-len="1:00">1:00</button>
+              <button type="button" class="chip" data-len="2:00">2:00</button>
+              <button type="button" class="chip" data-len="3:00">3:00</button>
+              <button type="button" class="chip" data-len="4:00">4:00</button>
+            </div>
+          </div>
+          <small id="lenHelp" class="len-help"></small>
+          <ul id="notesCues" class="cues" hidden></ul>
+          <p class="hint" id="notesHint"></p>
         </div>
 
         <div class="row options">
@@ -271,8 +290,26 @@
       <div class="t-actions">
         <a class="ghost small dl" download target="_blank" rel="noopener">⬇ MP3</a>
         <button class="ghost small lyr" type="button">Lyrics</button>
+        <button class="ghost small ext" type="button" title="Continue or change the song from a timestamp">⏩ Extend</button>
       </div>
       <pre class="t-lyrics" hidden></pre>
+      <div class="extend-box" hidden>
+        <strong>⏩ Extend or change from a timestamp</strong>
+        <div class="ext-row">
+          <label>Start from <input class="ext-at" data-focus="at" inputmode="numeric" maxlength="6" /></label>
+          <button type="button" class="ghost small ext-now">⏱ Use player time</button>
+          <button type="button" class="ghost small ext-end">⏭ From the end</button>
+        </div>
+        <small class="muted ext-help">Everything before this point stays. The AI continues from here following your notes, so pick the end to make the song longer, or an earlier moment to change what happens there.</small>
+        <label>What should happen from there?</label>
+        <textarea class="ext-notes" data-focus="notes" rows="2" maxlength="800" placeholder="Build into a bridge with a guitar solo, then one more big chorus and fade out."></textarea>
+        <label>Lyrics for the new part <small class="muted">(optional)</small></label>
+        <textarea class="ext-lyrics" data-focus="lyrics" rows="3" maxlength="5000" placeholder="[Bridge]&#10;..."></textarea>
+        <div class="ext-actions">
+          <button type="button" class="primary small ext-go">Extend track</button>
+          <button type="button" class="ghost small ext-cancel">Cancel</button>
+        </div>
+      </div>
     </div>
   </template>
 

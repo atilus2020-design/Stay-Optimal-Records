@@ -13,6 +13,7 @@ const weight = (v) => {
   return n === undefined ? undefined : Math.round(n * 100) / 100;
 };
 const fail = (msg) => Object.assign(new Error(msg), { status: 400 });
+const clock = (s) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
 
 function uploadUrlOf(input) {
   const u = str(input.uploadUrl, 2000);
@@ -32,19 +33,42 @@ function prune(body) {
   return body;
 }
 
+// ---------- producer notes ----------
+// SunoAPI has no free-form "instructions" field. Notes travel as natural-language direction in the
+// style (or prompt) text, and the target length uses the real `duration` parameter wherever the
+// endpoint supports it (10–360 s, V6 models).
+function brief(input) {
+  const notes = str(input.notes, 800)?.replace(/\s+/g, " ");
+  const seconds = clampNum(input.targetSeconds, 10, 360);
+  return { notes, seconds: seconds ? Math.round(seconds) : undefined };
+}
+const lengthPhrase = (s) => (s ? `Target length: about ${clock(s)}.` : "");
+
+// Appends notes (and optionally a length phrase) to a style/tags string within its char limit.
+function withNotes(base, { notes, seconds }, { includeLength = false, max = 1000 } = {}) {
+  const extra = [notes ? `Producer notes: ${notes}` : "", includeLength ? lengthPhrase(seconds) : ""]
+    .filter(Boolean)
+    .join(" ");
+  if (!extra) return base;
+  if (!base) return extra.slice(0, max);
+  const room = max - extra.length - 2;
+  return room > 20 ? `${base.slice(0, room)}. ${extra}` : `${base.slice(0, 200)}. ${extra}`.slice(0, max);
+}
+
 // Text-to-music: POST /api/v1/generate
 function buildGenerate(input, base) {
   const customMode = !!input.customMode;
   const instrumental = !!input.instrumental;
+  const b = brief(input);
   const body = { ...base, customMode, instrumental };
 
   if (customMode) {
     body.title = str(input.title, 80);
-    body.style = str(input.style, 1000);
+    body.style = withNotes(str(input.style, 1000), b);
     body.negativeTags = str(input.negativeTags, 1000);
     if (!instrumental) body.lyrics = str(input.lyrics, 5000);
     if (input.vocalGender === "m" || input.vocalGender === "f") body.vocalGender = input.vocalGender;
-    const duration = clampNum(input.duration, 10, 360);
+    const duration = b.seconds || clampNum(input.duration, 10, 360);
     if (duration) body.duration = Math.round(duration);
     body.styleWeight = weight(input.styleWeight);
     body.weirdnessConstraint = weight(input.weirdnessConstraint);
@@ -55,15 +79,19 @@ function buildGenerate(input, base) {
       throw fail("Custom mode needs at least a style, lyrics, or tags to avoid.");
     }
   } else {
-    body.prompt = str(input.prompt, 3000);
+    // Simple mode can't take `duration`, so length rides along in the description.
+    const extra = [b.notes ? `Producer notes: ${b.notes}` : "", lengthPhrase(b.seconds)].filter(Boolean).join("\n");
+    const prompt = str(input.prompt, 3000);
+    body.prompt = [prompt, extra].filter(Boolean).join("\n\n").slice(0, 3000) || undefined;
     body.style = str(input.style, 1000);
-    if (!body.prompt && !body.style) throw fail("Describe the song you want.");
+    if (!prompt && !body.style) throw fail("Describe the song you want.");
   }
   return { path: "/api/v1/generate", body };
 }
 
 // Recording -> re-sung in a new style, keeping the melody: POST /api/v1/generate/upload-cover
 function buildCover(input, base) {
+  const b = brief(input);
   return {
     path: "/api/v1/generate/upload-cover",
     body: {
@@ -71,8 +99,9 @@ function buildCover(input, base) {
       uploadUrl: uploadUrlOf(input),
       instrumental: false,
       title: str(input.title, 80),
-      style: str(input.style, 1000),
+      style: withNotes(str(input.style, 1000), b),
       lyrics: str(input.lyrics, 5000),
+      duration: b.seconds,
       audioWeight: weight(input.audioWeight),
       vocalGender: input.vocalGender === "m" || input.vocalGender === "f" ? input.vocalGender : undefined,
     },
@@ -82,13 +111,14 @@ function buildCover(input, base) {
 // Keep the user's real vocals, build a backing track: POST /api/v1/generate/add-instrumental
 // title, tags and negativeTags are required by the API, so sensible defaults are filled in.
 function buildAddInstrumental(input, base) {
+  const b = brief(input);
   return {
     path: "/api/v1/generate/add-instrumental",
     body: {
       ...base,
       uploadUrl: uploadUrlOf(input),
       title: str(input.title, 80) || "My Recording",
-      tags: str(input.style, 1000) || "full band, polished modern production",
+      tags: withNotes(str(input.style, 1000) || "full band, polished modern production", b, { includeLength: true }),
       negativeTags: str(input.negativeTags, 1000) || "low quality, distorted, off-key",
       lyrics: str(input.lyrics, 5000),
       audioWeight: weight(input.audioWeight),
@@ -98,7 +128,9 @@ function buildAddInstrumental(input, base) {
 
 // Recording used only as a reference for vibe & flow of a new song: POST /api/v1/generate (non-custom, audioUrls)
 function buildReference(input, base) {
+  const b = brief(input);
   const desc = [str(input.title, 80), str(input.prompt, 2000)].filter(Boolean).join(" — ");
+  const extra = [b.notes ? `Producer notes: ${b.notes}` : "", lengthPhrase(b.seconds)].filter(Boolean).join("\n");
   return {
     path: "/api/v1/generate",
     body: {
@@ -106,8 +138,29 @@ function buildReference(input, base) {
       customMode: false,
       instrumental: false,
       audioUrls: [uploadUrlOf(input)],
-      prompt: desc || undefined,
+      prompt: [desc, extra].filter(Boolean).join("\n\n").slice(0, 3000) || undefined,
       style: str(input.style, 1000),
+      lyrics: str(input.lyrics, 5000),
+    },
+  };
+}
+
+// Continue an existing generated track from a timestamp: POST /api/v1/generate/extend
+function buildExtend(input, base) {
+  const audioId = str(input.audioId, 200);
+  if (!audioId) throw fail("Pick a finished track to extend.");
+  const continueAt = clampNum(input.continueAt, 0.1, 3600);
+  if (!continueAt) throw fail("Choose where the extension should start.");
+  return {
+    path: "/api/v1/generate/extend",
+    body: {
+      ...base,
+      audioId,
+      taskId: str(input.taskId, 200),
+      continueAt: Math.round(continueAt * 10) / 10,
+      instrumental: false,
+      title: str(input.title, 100),
+      style: withNotes(str(input.style, 1000), brief(input)),
       lyrics: str(input.lyrics, 5000),
     },
   };
@@ -118,6 +171,7 @@ const BUILDERS = {
   cover: buildCover,
   "add-instrumental": buildAddInstrumental,
   reference: buildReference,
+  extend: buildExtend,
 };
 
 export default async (req) => {

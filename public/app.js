@@ -3,6 +3,7 @@
 
 import { canRecord, encodePcmMp3 } from "./recorder.js";
 import { Mixer, MAX_TRACKS } from "./mixer.js";
+import { parseClock, detectLength, extractCues, MAX_DURATION, fmtClock as clockOf } from "./notes.js";
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -150,6 +151,71 @@ function setMode(m) {
   $("#instrumentalWrap").hidden = m === "record";
   $("#genBtn .btn-label").textContent = genLabel();
   syncInstrumental();
+  syncNotes();
+}
+
+// ---------- producer notes ----------
+// Where the target length is applied exactly via SunoAPI's `duration` parameter.
+const exactLength = () => mode === "custom" || (mode === "record" && recUse() === "cover");
+
+function targetSeconds() {
+  const raw = $("#targetLen").value.trim();
+  if (!raw) return undefined;
+  const s = parseClock(raw);
+  if (!Number.isFinite(s) || s < 10) throw new Error("Target length should look like 3:00 (at least 0:10).");
+  return Math.min(MAX_DURATION, s);
+}
+
+function notesPayload() {
+  return { notes: $("#notes").value.trim(), targetSeconds: targetSeconds() };
+}
+
+function syncNotes() {
+  const text = $("#notes").value;
+  $("#notesCount").textContent = text.length;
+
+  // Auto-fill the target length from phrases like "make it 3 minutes", unless the user typed one.
+  const lenInput = $("#targetLen");
+  const found = detectLength(text);
+  if (lenInput.dataset.auto === "1" || !lenInput.value.trim()) {
+    if (found) {
+      lenInput.value = clockOf(Math.min(found, MAX_DURATION));
+      lenInput.dataset.auto = "1";
+    } else if (lenInput.dataset.auto === "1") {
+      lenInput.value = "";
+      lenInput.dataset.auto = "";
+    }
+  }
+
+  const help = $("#lenHelp");
+  const raw = lenInput.value.trim();
+  const secs = raw ? parseClock(raw) : NaN;
+  if (raw && (!Number.isFinite(secs) || secs < 10)) help.textContent = "Use m:ss, e.g. 3:00.";
+  else if (found && found > MAX_DURATION)
+    help.textContent = `Max ${clockOf(MAX_DURATION)} per generation. Generate at 6:00, then use ⏩ Extend on the finished track to go longer.`;
+  else if (raw && lenInput.dataset.auto === "1") help.textContent = `Picked up ${raw} from your notes.`;
+  else help.textContent = "";
+  help.classList.toggle("warn", !!help.textContent && !help.textContent.startsWith("Picked"));
+
+  const cues = extractCues(text);
+  const list = $("#notesCues");
+  list.replaceChildren(
+    ...cues.map((c) => {
+      const li = document.createElement("li");
+      const b = document.createElement("b");
+      b.textContent = c.endSecs ? `${clockOf(c.secs)}–${clockOf(c.endSecs)}` : clockOf(c.secs);
+      li.append(b, document.createTextNode(c.text));
+      return li;
+    })
+  );
+  list.hidden = !cues.length;
+
+  const how = exactLength()
+    ? "Length is applied exactly (up to 6:00)."
+    : "In this mode the length is passed to the AI as a request, so the result can run a bit shorter or longer.";
+  $("#notesHint").textContent =
+    `${how} Notes and timestamps steer the arrangement. The AI follows them closely, but not to the exact second. ` +
+    "To change what happens at an exact moment of a finished song, use ⏩ Extend on the track.";
 }
 
 function syncInstrumental() {
@@ -164,7 +230,12 @@ const recUse = () => $('input[name="recUse"]:checked').value;
 
 function collectForm() {
   const v = (id) => $("#" + id).value.trim();
-  const base = { customMode: mode === "custom", instrumental: $("#instrumental").checked, model: v("model") };
+  const base = {
+    customMode: mode === "custom",
+    instrumental: $("#instrumental").checked,
+    model: v("model"),
+    ...notesPayload(),
+  };
   if (mode === "simple") return { ...base, prompt: v("prompt") };
   const body = {
     ...base,
@@ -173,7 +244,6 @@ function collectForm() {
     lyrics: v("lyrics"),
     negativeTags: v("negativeTags"),
     vocalGender: v("vocalGender"),
-    duration: v("duration"),
   };
   for (const id of ["styleWeight", "weirdnessConstraint", "variety"]) {
     const el = $("#" + id);
@@ -191,10 +261,15 @@ function setMsg(text, isError = false) {
 async function onGenerate(e) {
   e.preventDefault();
   if (mode === "record") return onGenerateFromRecording();
-  const body = collectForm();
+  let body;
+  try {
+    body = collectForm();
+  } catch (err) {
+    return setMsg(err.message, true);
+  }
   if (mode === "simple" && !body.prompt) return setMsg("Describe the song you want first.", true);
-  if (mode === "custom" && !body.style && !body.lyrics && !body.negativeTags)
-    return setMsg("Add a style or some lyrics first.", true);
+  if (mode === "custom" && !body.style && !body.lyrics && !body.negativeTags && !body.notes)
+    return setMsg("Add a style, some lyrics, or producer notes first.", true);
 
   const btn = $("#genBtn");
   btn.disabled = true;
@@ -204,8 +279,15 @@ async function onGenerate(e) {
     const data = await api("/api/generate", { method: "POST", body });
     addJob({
       taskId: data.taskId,
-      title: body.title || (body.prompt ? body.prompt.slice(0, 60) : body.style.slice(0, 60)) || "Untitled",
-      sub: [body.model, body.instrumental ? "Instrumental" : null, body.customMode ? body.style : body.prompt]
+      model: body.model,
+      title: body.title || (body.prompt ? body.prompt.slice(0, 60) : (body.style || body.notes).slice(0, 60)) || "Untitled",
+      sub: [
+        body.model,
+        body.instrumental ? "Instrumental" : null,
+        body.targetSeconds ? `~${clockOf(body.targetSeconds)}` : null,
+        body.customMode ? body.style : body.prompt,
+        body.notes ? `📝 ${body.notes}` : null,
+      ]
         .filter(Boolean)
         .join(" · "),
     });
@@ -307,6 +389,12 @@ async function onGenerateFromRecording() {
   if (mixer.isRecording) await mixer.stopRecording();
   mixer.stop();
   if (!mixer.tracks.some((t) => t.buffer)) return setMsg("Record at least one layer (or add a file) first.", true);
+  let notes;
+  try {
+    notes = notesPayload();
+  } catch (err) {
+    return setMsg(err.message, true);
+  }
   const action = recUse();
   const btn = $("#genBtn");
   const label = btn.querySelector(".btn-label");
@@ -340,12 +428,23 @@ async function onGenerateFromRecording() {
       lyrics: v("recLyrics"),
       prompt: action === "reference" ? v("recPrompt") : "",
       audioWeight: action === "reference" ? undefined : Number($("#recAudioWeight").value),
+      ...notes,
     };
     const data = await api("/api/generate", { method: "POST", body });
     addJob({
       taskId: data.taskId,
+      model: body.model,
       title: body.title || "My recording",
-      sub: [body.model, USE_LABEL[action], `${layers} layer${layers > 1 ? "s" : ""}`, body.style].filter(Boolean).join(" · "),
+      sub: [
+        body.model,
+        USE_LABEL[action],
+        `${layers} layer${layers > 1 ? "s" : ""}`,
+        body.targetSeconds ? `~${clockOf(body.targetSeconds)}` : null,
+        body.style,
+        body.notes ? `📝 ${body.notes}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · "),
     });
     setMsg("Your mix is in the studio — the first take usually lands in a minute or two.");
   } catch (err) {
@@ -443,7 +542,120 @@ function poll(taskId) {
 const fmtDur = (s) => (s ? `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}` : "");
 let nowPlaying = null;
 
+// Per-track UI state that must survive re-renders (polling re-renders the list every few seconds).
+const extendDrafts = new Map(); // trackId -> { at, notes, lyrics }
+const lyricsOpen = new Set();
+
+function snapshotFocus() {
+  const a = document.activeElement;
+  if (!a || !a.closest || !a.closest("#jobs") || !a.dataset.focus) return null;
+  const card = a.closest(".track-card");
+  return { id: card && card.dataset.id, key: a.dataset.focus, start: a.selectionStart, end: a.selectionEnd };
+}
+
+function restoreFocus(f) {
+  if (!f) return;
+  const card = [...$$("#jobs .track-card")].find((c) => c.dataset.id === f.id);
+  const el = card && card.querySelector(`[data-focus="${f.key}"]`);
+  if (!el) return;
+  el.focus();
+  try { el.setSelectionRange(f.start, f.end); } catch {}
+}
+
+async function submitExtend(job, t) {
+  const d = extendDrafts.get(t.id);
+  const at = parseClock(d.at);
+  d.error = "";
+  if (!Number.isFinite(at) || at <= 0) d.error = "Enter where to start, like 1:30.";
+  else if (t.duration && at >= t.duration) d.error = `Pick a time before the end of the track (${fmtDur(t.duration)}).`;
+  if (d.error) return render();
+  d.busy = true;
+  render();
+  try {
+    const body = {
+      action: "extend",
+      model: job.model || "V6", // must match the source track's model
+      audioId: t.id,
+      taskId: job.taskId,
+      continueAt: at,
+      title: `${t.title} (Extended)`.slice(0, 100),
+      style: t.tags,
+      notes: d.notes.trim(),
+      lyrics: d.lyrics.trim(),
+    };
+    const data = await api("/api/generate", { method: "POST", body });
+    extendDrafts.delete(t.id);
+    addJob({
+      taskId: data.taskId,
+      model: body.model,
+      title: body.title,
+      sub: [`Extended from ${clockOf(at)}`, body.notes ? `📝 ${body.notes}` : null].filter(Boolean).join(" · "),
+    });
+    $("#jobs").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err) {
+    d.busy = false;
+    d.error = err.message;
+    render();
+  }
+}
+
+function renderExtend(card, job, t) {
+  const box = $(".extend-box", card);
+  const btn = $(".ext", card);
+  if (!t.audio || !t.id) {
+    btn.hidden = true;
+    return;
+  }
+  btn.addEventListener("click", () => {
+    if (extendDrafts.has(t.id)) extendDrafts.delete(t.id);
+    else extendDrafts.set(t.id, { at: clockOf(Math.max(1, Math.floor(t.duration || 0) - 1)), notes: "", lyrics: "" });
+    render();
+  });
+  const d = extendDrafts.get(t.id);
+  if (!d) return;
+  btn.classList.add("on");
+  box.hidden = false;
+  const at = $(".ext-at", box);
+  const notes = $(".ext-notes", box);
+  const lyrics = $(".ext-lyrics", box);
+  at.value = d.at;
+  notes.value = d.notes;
+  lyrics.value = d.lyrics;
+  at.addEventListener("input", () => (d.at = at.value));
+  notes.addEventListener("input", () => (d.notes = notes.value));
+  lyrics.addEventListener("input", () => (d.lyrics = lyrics.value));
+  $(".ext-help", box).textContent =
+    `Track length ${fmtDur(t.duration)}. Everything before your start point stays, and the AI continues from there following your notes. ` +
+    "Start near the end to make the song longer, or pick an earlier moment to change what happens there.";
+  const nowBtn = $(".ext-now", box);
+  nowBtn.disabled = nowPlaying !== t.id;
+  nowBtn.title = nowPlaying === t.id ? "Use the current position of the player" : "Play this track first, pause at the moment you want";
+  nowBtn.addEventListener("click", () => {
+    d.at = clockOf(Math.max(1, Math.floor($("#audio").currentTime)));
+    render();
+  });
+  $(".ext-end", box).addEventListener("click", () => {
+    d.at = clockOf(Math.max(1, Math.floor(t.duration || 0) - 1));
+    render();
+  });
+  $(".ext-cancel", box).addEventListener("click", () => {
+    extendDrafts.delete(t.id);
+    render();
+  });
+  const go = $(".ext-go", box);
+  go.disabled = !!d.busy;
+  go.textContent = d.busy ? "Sending…" : "Extend track";
+  go.addEventListener("click", () => submitExtend(job, t));
+  if (d.error) {
+    const err = document.createElement("p");
+    err.className = "job-err";
+    err.textContent = d.error;
+    box.append(err);
+  }
+}
+
 function render() {
+  const focus = snapshotFocus();
   const wrap = $("#jobs");
   wrap.replaceChildren();
   $("#empty").hidden = jobs.length > 0;
@@ -462,6 +674,7 @@ function render() {
 
     for (const t of job.tracks) {
       const card = $("#trackTpl").content.firstElementChild.cloneNode(true);
+      card.dataset.id = t.id || "";
       const src = t.audio || t.stream;
       if (t.image) $("img", card).src = t.image;
       $(".t-title", card).textContent = t.title;
@@ -480,12 +693,19 @@ function render() {
       const pre = $(".t-lyrics", card);
       if (t.lyrics && !/^\s*$/.test(t.lyrics)) {
         pre.textContent = t.lyrics;
-        lyrBtn.addEventListener("click", () => (pre.hidden = !pre.hidden));
+        pre.hidden = !lyricsOpen.has(t.id);
+        lyrBtn.addEventListener("click", () => {
+          pre.hidden = !pre.hidden;
+          if (pre.hidden) lyricsOpen.delete(t.id);
+          else lyricsOpen.add(t.id);
+        });
       } else lyrBtn.hidden = true;
+      renderExtend(card, job, t);
       $(".tracks", el).append(card);
     }
     wrap.append(el);
   }
+  restoreFocus(focus);
 }
 
 function play(t, src) {
@@ -578,8 +798,25 @@ function init() {
     }
   });
   syncMixerUi();
+
+  // producer notes
+  $("#notes").addEventListener("input", syncNotes);
+  $("#targetLen").addEventListener("input", () => {
+    $("#targetLen").dataset.auto = "";
+    syncNotes();
+  });
+  $$(".len-chips .chip").forEach((c) =>
+    c.addEventListener("click", () => {
+      $("#targetLen").value = c.dataset.len;
+      $("#targetLen").dataset.auto = "";
+      syncNotes();
+    })
+  );
+  syncNotes();
+
   $$('input[name="recUse"]').forEach((r) =>
     r.addEventListener("change", () => {
+      syncNotes();
       const a = recUse();
       $(".ref-only").hidden = a !== "reference";
       $("#recAudioWeight").closest(".slider").hidden = a === "reference";

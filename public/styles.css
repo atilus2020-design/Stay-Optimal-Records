@@ -265,3 +265,31 @@ dialog::backdrop { background: rgba(0,0,0,.6); }
 .layer-ctrls input[type="range"] { flex: 1; min-width: 60px; }
 .nudge-out { color: var(--text); font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; font-size: 11px; }
 @media (max-width: 420px) { .layer-dur { display: none; } }
+
+/* ---------- Producer notes ---------- */
+.notes { margin-top: 16px; padding: 12px; border: 1px dashed var(--accent-2); border-radius: 14px; background: rgba(124, 92, 255, .06); }
+.notes-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.notes-head label { margin: 0 0 6px; color: var(--text); }
+.notes-head small { font-size: 11px; white-space: nowrap; }
+.notes-len { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.notes-len label { margin: 0; }
+.notes-len input { width: 76px; padding: 6px 8px; text-align: center; font-variant-numeric: tabular-nums; }
+.len-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.len-help { display: block; min-height: 0; font-size: 12px; color: var(--accent); margin-top: 4px; }
+.len-help:empty { display: none; }
+.len-help.warn { color: #ffb020; }
+.cues { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.cues li { font-size: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px 3px 4px; color: var(--muted); }
+.cues li b { background: var(--accent-2); color: #fff; border-radius: 999px; padding: 1px 7px; margin-right: 6px; font-variant-numeric: tabular-nums; font-size: 11px; }
+.notes .hint { margin-bottom: 0; }
+
+/* ---------- Extend panel on a finished track ---------- */
+.t-actions .ext.on { border-color: var(--accent); color: var(--accent); }
+.extend-box { grid-column: 1 / -1; background: var(--bg); border: 1px solid var(--accent-2); border-radius: 12px; padding: 12px; }
+.extend-box > strong { display: block; font-size: 14px; margin-bottom: 6px; }
+.extend-box label { margin: 10px 0 4px; }
+.ext-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.ext-row label { margin: 0; display: flex; align-items: center; gap: 8px; color: var(--text); }
+.ext-at { width: 76px; padding: 6px 8px; text-align: center; font-variant-numeric: tabular-nums; }
+.ext-help { display: block; font-size: 12px; line-height: 1.4; margin-top: 8px; }
+.ext-actions { display: flex; gap: 8px; margin-top: 10px; }
